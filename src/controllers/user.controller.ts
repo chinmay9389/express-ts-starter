@@ -4,6 +4,8 @@ import { ApiResponse } from "../utils/apiResponse";
 import { asyncHandler } from "../utils/asyncHandler";
 import jwt, { Secret, JwtPayload } from "jsonwebtoken";
 import { getErrorMessage } from "../utils/utils";
+import { userLoginSchema, userRegistrationSchema } from "../schemas/user";
+import { ZodError } from "zod";
 
 const generateTokens = async (userId: string) => {
   try {
@@ -22,74 +24,85 @@ const generateTokens = async (userId: string) => {
 };
 
 const registercontroller = asyncHandler(async (req, res) => {
-  const { username, email, password } = req.body;
-  console.log(username, email, password);
-  if ([username, email, password].some((field) => field===undefined || field?.trim() === "")) {
-    throw new ApiError(400, "All fields are mandatory");
-  }
-  const existingUser = await User.findOne({
-    $or: [{ username }, { email }],
-  });
-  if (existingUser) {
-    throw new ApiError(
-      409,
-      "User already registered with same username or email"
+  try {
+    const userData = userRegistrationSchema.parse(req.body);
+    const { username, email, password, confirmpassword } = userData;
+    console.log(username, email, password);
+    const existingUser = await User.findOne({
+      $or: [{ username }, { email }],
+    });
+    if (existingUser) {
+      throw new ApiError(
+        409,
+        "User already registered with same username or email"
+      );
+    }
+    const user: IUser = await User.create({
+      username: username.toLowerCase(),
+      email: email,
+      password: password,
+    });
+    const createdUser = await User.findById(user._id).select(
+      "-password -refreshToken"
     );
+    if (!user) {
+      throw new ApiError(500, "Something went wrong while creating user");
+    }
+    return res
+      .status(200)
+      .json(new ApiResponse(200, createdUser, "User created successfully"));
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).send(error.errors);
+    }
   }
-  const user: IUser = await User.create({
-    username: username.toLowerCase(),
-    email: email,
-    password: password,
-  });
-  const createdUser = await User.findById(user._id).select(
-    "-password -refreshToken"
-  );
-  if (!user) {
-    throw new ApiError(500, "Something went wrong while creating user");
-  }
-  return res
-    .status(200)
-    .json(new ApiResponse(200, createdUser, "User created successfully"));
 });
 
 const logincontroller = asyncHandler(async (req, res) => {
-  const { username, email, password } = req.body;
-  if (!username && !email) {
-    throw new ApiError(400, "username or email is required");
-  }
-  const user: IUser | null = await User.findOne({
-    $or: [{ username }, { email }],
-  });
-  if (!user) {
-    throw new ApiError(404, "User doesn't exist");
-  }
-  const isPasswordValid = await user.isPasswordCorrect(password);
-  if (!isPasswordValid) {
-    throw new ApiError(401, "Invalid user credentials");
-  }
+  try {
+    const userData = userLoginSchema.parse(req.body);
+    const { username, email, password } = userData;
+    if (!username && !email) {
+      throw new ApiError(400, "username or email is required");
+    }
+    const user: IUser | null = await User.findOne({
+      $or: [{ username }, { email }],
+    });
+    if (!user) {
+      throw new ApiError(404, "User doesn't exist");
+    }
+    const isPasswordValid = await user.isPasswordCorrect(password);
+    if (!isPasswordValid) {
+      throw new ApiError(401, "Invalid user credentials");
+    }
 
-  const { accessToken, refreshToken } = await generateTokens(user._id);
+    const { accessToken, refreshToken } = await generateTokens(user._id);
 
-  const loggedInUser = await User.findById(user._id).select(
-    "-password -refreshToken"
-  );
-
-  const options = {
-    httpOnly: true,
-    secure: true,
-  };
-
-  return res
-    .status(200)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
-    .json(
-      new ApiResponse(
-        200,
-        { user: loggedInUser, accessToken, refreshToken },
-        "User logged in successfully"
-      )
+    const loggedInUser = await User.findById(user._id).select(
+      "-password -refreshToken"
     );
+
+    const options = {
+      httpOnly: true,
+      secure: true,
+    };
+
+    return res
+      .status(200)
+      .cookie("accessToken", accessToken, options)
+      .cookie("refreshToken", refreshToken, options)
+      .json(
+        new ApiResponse(
+          200,
+          { user: loggedInUser, accessToken, refreshToken },
+          "User logged in successfully"
+        )
+      );
+  } catch (error) {
+    if (error instanceof ZodError) {
+      res.status(400).send(error.errors);
+    }
+  }
 });
 
 const refreshAccessToken = asyncHandler(async (req, res) => {
@@ -131,7 +144,6 @@ const refreshAccessToken = asyncHandler(async (req, res) => {
 });
 
 const logoutController = asyncHandler(async (req, res) => {
-  console.log(req.user._id);
   await User.findByIdAndUpdate(
     req.user._id,
     {
