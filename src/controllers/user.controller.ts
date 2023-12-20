@@ -55,6 +55,9 @@ const registercontroller = asyncHandler(async (req, res) => {
     if (error instanceof ZodError) {
       res.status(400).send(error.errors);
     }
+    if (error instanceof ApiError) {
+      res.status(error.statusCode).send(error.message);
+    }
   }
 });
 
@@ -101,6 +104,9 @@ const logincontroller = asyncHandler(async (req, res) => {
   } catch (error) {
     if (error instanceof ZodError) {
       res.status(400).send(error.errors);
+    }
+    if (error instanceof ApiError) {
+      res.status(error.statusCode).send(error.message);
     }
   }
 });
