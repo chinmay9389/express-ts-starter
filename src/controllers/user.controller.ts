@@ -24,7 +24,7 @@ const generateTokens = async (userId: string) => {
 const registercontroller = asyncHandler(async (req, res) => {
   const { username, email, password } = req.body;
   console.log(username, email, password);
-  if ([username, email, password].some((field) => field?.trim() === "")) {
+  if ([username, email, password].some((field) => field===undefined || field?.trim() === "")) {
     throw new ApiError(400, "All fields are mandatory");
   }
   const existingUser = await User.findOne({
